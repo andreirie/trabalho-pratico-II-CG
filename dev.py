@@ -6,6 +6,7 @@ import numpy as np
 import math
 import random
 from PIL import Image
+from lightsaber import *
 
 # --- Variáveis Globais para as Texturas ---
 skybox_texture_id = None
@@ -13,33 +14,42 @@ meteor_texture_id = None
 earth_texture_id = None
 earth_rotation_angle = 0.0 
 
+# --- Variáveis Globais de Tempo ---
+# NOVO: Tempo total de jogo em segundos para a vitória (contagem regressiva)
+MAX_GAME_TIME_SECONDS = 61
+# Variável para a contagem regressiva 
+game_timer_ms = MAX_GAME_TIME_SECONDS * 1000
+
 # Onde o objeto para de cair (superfície da esfera de fundo)
 # Centro Y (-130.0) + Raio (100.0) = -30.0
 EARTH_SURFACE_Y = -30.0 
 # O PLANO DO CHÃO DO JOGADOR (Invisível, mas limita o movimento)
 PENALTY_GROUND_Y = 0.0
 
-# --- Limites do Grid de Jogo (Novas Variáveis) ---
+# --- Limites do Grid de Jogo ---
 GRID_LIMIT = 20.0 
 
-# --- Variáveis para o CRAWL TEXT da Introdução (MODIFICADAS) ---
-crawl_title = "GUERRA NAS ESFERAS" # NOVO: Título do Jogo
+# --- Variáveis para o CRAWL TEXT da Introdução ---
+crawl_title = "GUERRA NAS ESFERAS" 
 
 crawl_text = [
     "EPISÓDIO I: AMEAÇA METEÓRICA",
     "",
-    "A Terra está sob ameaça! Chuvas de meteoros atingem o planeta,",
-    "e a humanidade corre risco. Sua missão, como defensor espacial,",
+    "A Terra está sob AMEAÇA! Chuvas de meteoros atingem o planeta,",
+    "e a humanidade corre risco. SUA MISSÃO, como defensor espacial,",
     "é interceptar os meteoros antes que eles atinjam o solo.",
-    "Cada interceptação garante 10 pontos de vida para a Terra.",
-    "Contudo, cada meteoro que atinge a superfície causa uma",
-    "penalidade de 5 pontos. Se a pontuação cair abaixo de zero,",
-    "a missão falha. Defenda a Terra e alcance 100 pontos!",
+    "",
+    "Cada interceptação BEM-SUCEDIDA é crucial para a defesa da TERRA.",
+    "Contudo, cada meteoro que atinge a superfície, aproxima o fim.",
+    "",
+    "A missão FALHA se a a Terra sofrer muitos ataques.",
+    "Proteja a Terra até que o TEMPO acabe!",
     "",
     "COMANDOS:",
     "W, A, S, D: Movimento",
     "SHIFT ESQUERDO: Corrida (Usa Estamina)",
     "Mouse: Olhar/Girar a Câmera",
+    "ESPAÇO: Ativar/DESATIVAR Sabre",
     "ESC: Sair do Jogo",
     "",
     "PREPARE-SE PARA A DEFESA!",
@@ -52,7 +62,6 @@ crawl_speed = 0.5
 title_fade_timer = 0 
 TITLE_STILL_DURATION =  240 # 4 segundos em 60 FPS
 TITLE_FADE_DURATION = 90  # 1.5 segundos em 60 FPS
-
 
 # --- Configurações da Câmera ---
 class Camera:
@@ -70,7 +79,7 @@ class Camera:
         self.max_stamina = 200.0
         self.current_stamina = 200.0
         self.stamina_drain_rate = 1.0
-        self.stamina_recover_rate = 0.5
+        self.stamina_recover_rate = 0.75
         
         self.up = np.array([0.0, 1.0, 0.0])
 
@@ -231,7 +240,7 @@ class DroppingObject:
             (meteor_z - player_z)**2
         )
         
-        collision_radius = self.size + 0.5 
+        collision_radius = self.size + 2
         
         if distance_3d < collision_radius:
             self.active = False
@@ -385,7 +394,6 @@ def draw_half_sphere():
     
     glPopMatrix()
 
-
 def draw_scene(dropping_objects, skybox_id):
     """Função principal de desenho da cena."""
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT)
@@ -523,7 +531,7 @@ def draw_outlined_text(text, font, display_size, y_offset=0, fill_color=(0, 0, 0
 
     
     # 2. Renderiza a superfície do preenchimento (Fill)
-    # A cor do preenchimento é preta (0, 0, 0) para o efeito vazado no fundo preto do espaço.
+    # A cor do preenchimento é preta (cor do fundo do espaço) para dar o efeito vazado
     fill_surface = font.render(text, True, fill_color[:3]) 
     
     # Configura a cor e alpha do preenchimento 
@@ -601,6 +609,85 @@ def draw_star_wars_crawl(font, display_size):
     restore_3d_projection()
     return False
 
+# --- FUNÇÃO NOVA: BARRA DE VIDA DA TERRA ---
+def draw_health_bar(current, max_health, display_size):
+    """Desenha a barra de vida da Terra no centro superior da tela."""
+    
+    setup_2d_projection(display_size)
+    
+    bar_width_max = 1000  
+    bar_height = 20
+    bar_padding_top = 30
+    
+    width, height = display_size
+    
+    # NOVO CÁLCULO: Centraliza a barra horizontalmente
+    bar_x = (width - bar_width_max) // 2
+    
+    # Posição Y (top-left) - Invertida para coordenadas OpenGL (y=0 é o fundo)
+    bar_y = height - bar_padding_top - bar_height 
+    
+    health_ratio = current / max_health
+    bar_width_current = bar_width_max * max(0.0, health_ratio) # Garante que não é negativo
+    
+    # 1. Fundo da barra
+    glColor4f(0.2, 0.2, 0.2, 0.8) # Cinza escuro/preto semi-transparente
+    glBegin(GL_QUADS)
+    glVertex2f(bar_x, bar_y)
+    glVertex2f(bar_x + bar_width_max, bar_y)
+    glVertex2f(bar_x + bar_width_max, bar_y + bar_height)
+    glVertex2f(bar_x, bar_y + bar_height)
+    glEnd()
+    
+    # 2. Preenchimento da vida (muda de verde para vermelho)
+    if health_ratio > 0:
+        # Interpolando as cores: Verde -> Amarelo -> Vermelho
+        if health_ratio >= 0.5:
+            r = (1.0 - health_ratio) * 2.0  # Vai de 0 a 1.0
+            g = 1.0
+        else:
+            r = 1.0
+            g = health_ratio * 2.0  # Vai de 1.0 a 0
+        b = 0.0
+        
+        glColor4f(r, g, b, 0.9)
+        
+        glBegin(GL_QUADS)
+        glVertex2f(bar_x, bar_y)
+        glVertex2f(bar_x + bar_width_current, bar_y)
+        glVertex2f(bar_x + bar_width_current, bar_y + bar_height)
+        glVertex2f(bar_x, bar_y + bar_height)
+        glEnd()
+
+    # 3. Borda
+    glColor4f(1.0, 1.0, 1.0, 1.0) # Borda branca
+    glLineWidth(2.0)
+    glBegin(GL_LINE_LOOP)
+    glVertex2f(bar_x, bar_y)
+    glVertex2f(bar_x + bar_width_max, bar_y)
+    glVertex2f(bar_x + bar_width_max, bar_y + bar_height)
+    glVertex2f(bar_x, bar_y + bar_height)
+    glEnd()
+    
+    # Adiciona o texto do valor atual (sob a barra)
+    health_text = f"TERRA"
+    font = pygame.font.Font(None, 24) 
+    text_surface = font.render(health_text, True, (255, 255, 255))
+    text_w, text_h = text_surface.get_size()
+    
+    # Posição do texto (centralizado HORIZONTALMENTE na barra, mas ABAIXO dela)
+    text_x = bar_x + (bar_width_max - text_w) // 2
+    # Coordenada OpenGL Y: A barra_y é o limite inferior da barra
+    text_y = bar_y - text_h - 5 # 5 pixels de margem
+    
+    text_data = pygame.image.tostring(text_surface, "RGBA", True)
+
+    glColor4f(1.0, 1.0, 1.0, 1.0) # Cor do texto (Branco)
+    glRasterPos2i(text_x, int(text_y))
+    glDrawPixels(text_w, text_h, GL_RGBA, GL_UNSIGNED_BYTE, text_data)
+
+    restore_3d_projection()
+    
 def draw_stamina_bar(current, max_stamina, display_size):
     """Desenha a barra de estamina no canto inferior esquerdo da tela."""
     
@@ -652,7 +739,6 @@ def draw_stamina_bar(current, max_stamina, display_size):
     
     restore_3d_projection()
 
-
 STAR_WARS_THEME_PATH = "sounds/star_wars_theme.mp3" 
 WILHELM_SCREAM_PATH = "sounds/scream.mp3" 
 wilhelm_scream_sound = None 
@@ -661,6 +747,7 @@ wilhelm_scream_sound = None
 def main():
     global skybox_texture_id, meteor_texture_id, earth_texture_id, earth_rotation_angle, crawl_y_offset, wilhelm_scream_sound
     global title_fade_timer, crawl_title, TITLE_STILL_DURATION, TITLE_FADE_DURATION
+    global game_timer_ms, MAX_GAME_TIME_SECONDS
     
     pygame.init()
     
@@ -693,7 +780,9 @@ def main():
     glEnable(GL_DEPTH_TEST)
     glClearColor(0.0, 0.0, 0.0, 1.0) 
     
-    score = 0
+    # : Score agora é a Vida da Terra (Earth Health)
+    MAX_HEALTH = 100 # NOVO: Vida máxima para a barra
+    score = 100 # Começa com 50 de vida
     
     try:
         pygame.font.init()
@@ -720,7 +809,9 @@ def main():
     
     object_spawn_timer = 0
     SPAWN_INTERVAL = 60 
-    WIN_SCORE = 100
+    
+    # REMOVIDO: Não usa mais WIN_SCORE para vencer, usa o timer
+    # WIN_SCORE = 100 
     
     # ESTADO INICIAL: Tela de Título
     game_state = "TITLE_SCREEN" 
@@ -729,6 +820,9 @@ def main():
     running = True
     
     EARTH_ROTATION_SPEED = 0.1 
+    
+    # Variável para rastrear o tempo do último frame (para cálculos de delta time)
+    last_time = pygame.time.get_ticks() 
     
     # Lógica de Carregamento e Início da Música
     try:
@@ -742,6 +836,11 @@ def main():
 
 
     while running:
+        current_time = pygame.time.get_ticks()
+        # Calcula o delta time (tempo decorrido desde o último frame)
+        delta_time_ms = current_time - last_time 
+        last_time = current_time
+        
         # Gerenciamento de Eventos 
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -756,6 +855,9 @@ def main():
                     pygame.mouse.set_visible(False)
                     pygame.event.set_grab(True)
                     pygame.mixer.music.stop() 
+                
+                if game_state == "RUNNING" and event.key == pygame.K_SPACE:
+                    toggle_saber()
                     
             if game_state == "RUNNING":
                 if event.type == pygame.MOUSEMOTION:
@@ -771,7 +873,7 @@ def main():
             cam.update_view()
             draw_scene(dropping_objects, skybox_texture_id) 
             
-            # --- Lógica do Título com Fade Out (NOVA) ---
+            # --- Lógica do Título com Fade Out  ---
             
             if title_fade_timer < TITLE_STILL_DURATION:
                 # Título Estático
@@ -833,14 +935,27 @@ def main():
             draw_centered_text("Pressione ESPAÇO para Pular", font, display, y_offset=300, color=(150, 150, 150, 255))
             
         elif game_state == "RUNNING":
-            # Lógica RUNNING inalterada
+            # --- LÓGICA DO TEMPORIZADOR REGRESSIVO ---
+            if game_timer_ms > 0:
+                # Diminui o tempo restante pelo tempo decorrido no frame
+                game_timer_ms -= delta_time_ms
+                if game_timer_ms < 0:
+                    game_timer_ms = 0
             
+            # Checagem de Condição de Vitória 
+            if game_timer_ms <= 0:
+                if game_state != "WIN": 
+                    game_state = "WIN"
+                pygame.mouse.set_visible(True)
+                pygame.event.set_grab(False)
+                pygame.mixer.music.stop() 
+                
+            # --------------------------------------------------
+
             # Movimento e Câmera
             cam.update_movement(keys)
             glLoadIdentity()
             cam.update_view()
-            
-            # Lógica do Jogo (Objetos, Colisão e Rotação)
             
             # Rotação da Terra
             earth_rotation_angle += EARTH_ROTATION_SPEED
@@ -850,15 +965,14 @@ def main():
             for obj in list(dropping_objects): 
                 obj.update() 
                 
-                # Colisão com o Jogador (Ganha Pontos)
+                # Colisão com o Jogador (Ganha Pontos/Vida)
                 if obj.check_collision(cam.position):
-                    score += 10 
                     dropping_objects.remove(obj) 
                     continue 
                 
                 # Penalidade por Atingir a Terra (Y <= EARTH_SURFACE_Y)
                 if not obj.active and not obj.has_hit_earth:
-                    score -= 5 
+                    score -= 5 # Perde 5 de vida
                     obj.has_hit_earth = True 
                     
                 # Remoção por Atingir a Terra (Y=-30.0)
@@ -871,8 +985,8 @@ def main():
                 dropping_objects.append(DroppingObject())
                 object_spawn_timer = 0
             
-            # Checagem de Estado: Game Over ou Win
-            if score < 0:
+            # Checagem de Estado: Game Over 
+            if score <= 0:
                 game_state = "GAME_OVER"
                 pygame.mouse.set_visible(True)
                 pygame.event.set_grab(False)
@@ -881,19 +995,34 @@ def main():
                 if wilhelm_scream_sound:
                     wilhelm_scream_sound.play() 
                 # ------------------------------------
-            elif score >= WIN_SCORE:
-                game_state = "WIN"
-                pygame.mouse.set_visible(True)
-                pygame.event.set_grab(False)
-                pygame.mixer.music.stop() 
                 
-            # Desenho da Cena 3D ---
+            # Desenho da Cena 3D 
             draw_scene(dropping_objects, skybox_texture_id)
 
-            # Desenho do Placar e Estamina 2D (Overlay) ---
-            score_text = f"SCORE: {score} / {WIN_SCORE}"
-            draw_text_2d(score_text, 10, 10, font) 
+            # desenha o sabre 
+            draw_lightsaber(cam)
+
+            # --- NOVO: Desenho da Barra de Vida da Terra (Earth Health) ---
+            draw_health_bar(score, MAX_HEALTH, display)
+            # -------------------------------------------------------------
+
+            # Desenho da Estamina (Canto inferior esquerdo) ---
             draw_stamina_bar(cam.current_stamina, cam.max_stamina, display)
+
+            # Desenho do Temporizador
+            time_remaining_ms = max(0, game_timer_ms)
+            total_seconds = time_remaining_ms // 1000
+            minutes = total_seconds // 60
+            seconds = total_seconds % 60
+            
+            # Formata a string de tempo (adiciona zero à esquerda)
+            time_text = f"TEMPO RESTANTE: {minutes:02}:{seconds:02}"
+            
+            text_width, text_height = font.size(time_text)
+            timer_x = display[0] - text_width - 10 
+            # O Timer agora fica no canto superior direito
+            timer_y = display[1] - text_height - 10
+            draw_text_2d(time_text, timer_x, timer_y, font)
         
         elif game_state == "GAME_OVER" or game_state == "WIN":
             # Lógica GAME_OVER/WIN 
@@ -914,17 +1043,14 @@ def main():
             
             restore_3d_projection()
             
-            # Textos
-            score_text = f"SCORE: {score} / {WIN_SCORE}"
-            draw_text_2d(score_text, 10, 10, font) 
-            
             if game_state == "GAME_OVER":
-                draw_centered_text("GAME OVER", font_large, display, y_offset=-50, color=(255, 0, 0, 255))
+                draw_centered_text("DERROTA!", font_large, display, y_offset=-50, color=(255, 0, 0, 255))
+                draw_centered_text("Não há mais vida na Terra.", font, display, y_offset=10, color=(255, 255, 255, 255))
                 draw_centered_text("Pressione ESC para sair", font, display, y_offset=60, color=(150, 150, 150, 255))
             else: # WIN
-                draw_centered_text("VITÓRIA!", font_large, display, y_offset=-50, color=(0, 255, 0, 255))
-                draw_centered_text(f"Você defendeu a Terra!", font, display, y_offset=0, color=(255, 255, 255, 255))
-                draw_centered_text("Pressione ESC para sair", font, display, y_offset=60, color=(150, 150, 150, 255))
+                draw_centered_text("VITÓRIA!", font_large, display, y_offset=-70, color=(0, 255, 0, 255))
+                draw_centered_text(f"Você defendeu a Terra!", font, display, y_offset=10, color=(255, 255, 255, 255))
+                draw_centered_text("Pressione ESC para sair", font, display, y_offset=130, color=(150, 150, 150, 255))
 
 
         # --- 6. Atualização da Tela ---
