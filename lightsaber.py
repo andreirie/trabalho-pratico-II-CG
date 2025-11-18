@@ -4,20 +4,17 @@ import pygame
 from OpenGL.GL import *
 from OpenGL.GLU import *
 
-# -------------------- ÁUDIO --------------------
 pygame.mixer.init()
 
 sound_on = pygame.mixer.Sound("sounds/saber_on.mp3")
 sound_off = pygame.mixer.Sound("sounds/saber_off.mp3")
 
-# -------------------- ESTADOS DO SABRE --------------------
 SABER_ON = False
 blade_progress = 0.0
 BLADE_GROW_SPEED = 2.0
 
 _last_time = time.time()
 
-# -------------------- CONSTANTES --------------------
 HILT_LENGTH = 0.3
 HILT_RADIUS = 0.06
 BLADE_LENGTH = 2.0
@@ -27,7 +24,6 @@ CYL_SEGMENTS = 32
 
 BLADE_COLOR = (0.0, 0.8, 1.0)
 
-# -------------------- DESENHO BÁSICO --------------------
 def draw_cylinder(length, radius, segments):
     glBegin(GL_QUAD_STRIP)
     for i in range(segments + 1):
@@ -62,37 +58,31 @@ def draw_hilt():
 
 def get_pulse_factor():
     t = time.time()
-    return 0.5 + 0.5 * math.sin(t * 6.0)   # Frequência 6 Hz
+    return 0.5 + 0.5 * math.sin(t * 6.0)   
 
 
 def draw_blade():
     r, g, b = BLADE_COLOR
     current_length = BLADE_LENGTH * blade_progress
 
-    # --- ILUMINAÇÃO PULSANTE ---
     pulse = get_pulse_factor()
 
-    # Raio externo varia com a pulsação (leve, para ficar bonito)
     glow_radius = GLOW_RADIUS * (1.0 + 0.12 * pulse)
 
-    # Intensidade do brilho da lâmina
     glow_alpha = 0.10 + 0.10 * pulse
     core_alpha = 0.75 + 0.20 * pulse
 
     glDisable(GL_DEPTH_TEST)
 
-    # Glow suave externo (pulsante)
     glColor4f(r, g, b, glow_alpha)
     draw_cylinder(current_length, glow_radius, CYL_SEGMENTS)
 
-    # Núcleo da lâmina (pulsante)
     glColor4f(r*1.4, g*1.4, b*1.4, core_alpha)
     draw_cylinder(current_length, BLADE_RADIUS, CYL_SEGMENTS)
 
     glEnable(GL_DEPTH_TEST)
 
 
-# -------------------- ANIMAÇÃO AUTOMÁTICA --------------------
 def _update_saber_internal():
     global blade_progress, _last_time
 
@@ -107,7 +97,6 @@ def _update_saber_internal():
         blade_progress -= dt * BLADE_GROW_SPEED
         blade_progress = max(blade_progress, 0.0)
 
-# -------------------- DESENHO DO SABRE --------------------
 def draw_lightsaber(cam):
     _update_saber_internal()
 
@@ -128,7 +117,6 @@ def draw_lightsaber(cam):
 
     glPopMatrix()
 
-# -------------------- LIGAR/DESLIGAR --------------------
 def toggle_saber():
     global SABER_ON
 
